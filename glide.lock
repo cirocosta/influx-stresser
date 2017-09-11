@@ -1,0 +1,12 @@
+hash: 5ba991934f92dbed562d484958eccb93fdf839821e33bea71ed8ed3fb5e38c87
+updated: 2017-09-11T10:37:12.432495628-03:00
+imports:
+- name: github.com/alexflint/go-arg
+  version: cef6506c97e5731da728c374ff3523e481026423
+- name: github.com/influxdata/influxdb
+  version: 9d9001036d3585cf21925c13a57881bc6c8dcc7e
+  subpackages:
+  - client/v2
+- name: github.com/rs/zerolog
+  version: 3ac71fc58dbd43122668a912b755b0979ba9ce1f
+testImports: []
