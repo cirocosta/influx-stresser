@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/alexflint/go-arg"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	influx "github.com/influxdata/influxdb/client/v2"
 )
@@ -41,6 +43,7 @@ var (
 		Points:      20,
 		Batches:     100,
 	}
+	logger = zerolog.New(os.Stdout)
 )
 
 func NewStresser(cfg StresserConfig) (s Stresser, err error) {
@@ -72,12 +75,12 @@ func (s Stresser) Start(bps chan<- influx.BatchPoints) (err error) {
 		tags          = map[string]string{"cpu": "cpu-total"}
 		fields        = map[string]interface{}{}
 		batch  uint64 = 0
+		point  uint64 = 0
 	)
 
 	for batch = 0; batch < s.batches; batch++ {
 		bp, err = influx.NewBatchPoints(influx.BatchPointsConfig{
-			Database:  s.database,
-			Precision: "s",
+			Database: s.database,
 		})
 		if err != nil {
 			err = errors.Wrapf(err,
@@ -86,17 +89,19 @@ func (s Stresser) Start(bps chan<- influx.BatchPoints) (err error) {
 			return
 		}
 
-		fields["idle"] = rand.Float64()
-		fields["system"] = rand.Float64()
-		fields["user"] = rand.Float64()
+		for point = 0; point < s.points; point++ {
+			fields["idle"] = rand.Float64()
+			fields["system"] = rand.Float64()
+			fields["user"] = rand.Float64()
 
-		pt, err = influx.NewPoint("cpu_usage", tags, fields, time.Now())
-		if err != nil {
-			err = errors.Wrapf(err, "failed to create point cpu_usage")
-			return
+			pt, err = influx.NewPoint("cpu_usage", tags, fields, time.Now())
+			if err != nil {
+				err = errors.Wrapf(err, "failed to create point cpu_usage")
+				return
+			}
+
+			bp.AddPoint(pt)
 		}
-
-		bp.AddPoint(pt)
 
 		bps <- bp
 	}
@@ -111,7 +116,11 @@ func (s Stresser) GenBatchWriter(bps <-chan influx.BatchPoints, errChan chan<- e
 		bp  influx.BatchPoints
 	)
 
+	logger.Info().Msg("writer created")
+
 	for bp = range bps {
+		logger.Info().Msg("writing batch")
+
 		err = s.client.Write(bp)
 		if err != nil {
 			errChan <- errors.Wrapf(err,
@@ -131,7 +140,7 @@ func main() {
 	arg.MustParse(cli)
 
 	var (
-		bpsChan     = make(chan influx.BatchPoints, 10)
+		bpsChan     = make(chan influx.BatchPoints, 1000)
 		errChan     = make(chan error, 10)
 		wg          sync.WaitGroup
 		concurrency = int(cli.Concurrency)
@@ -148,8 +157,16 @@ func main() {
 		}()
 	}
 
+	go func() {
+		for err := range errChan {
+			logger.Error().Err(err).Msg("received err")
+		}
+	}()
+
 	err = stresser.Start(bpsChan)
 	must(err)
+
+	logger.Info().Msg("finished BPS list")
 
 	wg.Wait()
 }
